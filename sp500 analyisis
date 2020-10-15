@@ -1,0 +1,296 @@
+import pandas_datareader.data as web
+import pandas as pd
+import matplotlib.pyplot as plt
+import numpy as np
+import datetime
+
+start=datetime.date(2019,11,3)
+end=datetime.date(2020,11,3)
+sp_500_df=web.DataReader("SPY","yahoo",start,end).reset_index()
+
+sp_500_df.isna().sum() # Maybe we can use this line?
+sp_500_df=sp_500_df.dropna()
+sp_500_df.describe()
+# this means our SP500 dont have NAN
+sp_500_df.set_index("Date",inplace=True)
+daily_close_px=sp_500_df["Close"]
+
+#Data visualization
+import plotly.graph_objs as go
+closing_overtime = go.Scatter(x = sp_500_df.index, y = daily_close_px)
+go.Figure(closing_overtime)
+ax=daily_close_px.plot(figsize=(14,8),color="black")
+
+ax.annotate("sharp drop caused by Covid-19",xy=("2020-04",230),xytext=("2020-07",240),size=13,arrowprops=dict(arrowstyle="->",connectionstyle="angle3,angleA=40,angleB=-90"))
+ax.annotate("reasonable logic start point",xy=("2020-05",280),xytext=("2020-06",260),size=13,arrowprops=dict(arrowstyle="->",connectionstyle="arc3"))
+##there is a sharp drop for Covid-19
+
+#Testing the seasonality of SP500
+We only have three seasons. We may need previous data to analyze the seasonality, so I want to expand the time span and analyze the seasonality.
+
+start2=datetime.date(2015,11,3)
+sp500_5year_df=web.DataReader("SPY","yahoo",start2,end).reset_index()
+import statsmodels.tsa.stattools as ts
+def judge_stationarity(data_sanya_one):
+    dftest = ts.adfuller(data_sanya_one)
+    print(dftest)
+    dfoutput = pd.Series(dftest[0:4], index=['Test Statistic','p-value','#Lags Used','Number of Observations Used'])
+    stationarity = 1
+    for key, value in dftest[4].items():
+        dfoutput['Critical Value (%s)'%key] = value 
+        if dftest[0] > value:
+                stationarity = 0
+    print(dfoutput)
+    print("whether_stationary(1/0): %d" %(stationarity))
+    return stationarity
+
+sp500_px_series=pd.DataFrame([sp500_5year_df["Close"]]).T
+sp500_px_series.index=sp500_5year_df["Date"]
+sp500_px_series
+
+stationarity=judge_stationarity(sp500_px_series)
+if stationarity == 0:
+    sp500_px_series_diff = sp500_px_series.diff()
+    sp500_px_series_diff = sp500_px_series_diff.dropna()
+    plt.figure()
+    plt.plot( sp500_px_series_diff)
+    plt.title("1st difference")
+    plt.show()
+judge_stationarity(sp500_px_series_diff)
+
+#now our series is stationary enough for seasonality test
+
+from statsmodels.tsa.seasonal import seasonal_decompose
+decomposition = seasonal_decompose(sp500_px_series_diff,period=28)
+trend = decomposition.trend
+seasonal = decomposition.seasonal
+residual = decomposition.resid
+
+stationarity = judge_stationarity(residual.dropna())
+plt.figure(figsize=(20,10))
+decomposition.plot()
+#Now, we can conclude that our data has seasonality
+plt.figure(figsize=(15,7))
+plt.title("table-5:seasonal pattern")
+plt.xlabel("Time")  
+decomposition.seasonal.plot(color="purple",alpha=0.5)
+
+#as we can see on table-5,SP500 has apparently cyclicity,but we want to decompose it and see the real trend,¶
+here we go
+plt.figure(figsize=(15,7))
+ax1=plt.subplot(121)
+ax1.plot(trend,color="blue")
+plt.title("After Decomposition")
+ax2=plt.subplot(122)
+ax2.plot(sp500_px_series_diff,color="red")
+plt.title("Before Decomposition ")
+ax2.set_yticks([])
+
+decomposed=pd.DataFrame(trend)
+decomposed=decomposed.fillna(method="ffill").dropna()
+decomposed.head()
+
+##let's extract the time period we are mostly interested(2019-11-3~2020-11-3(its the election day))
+decomposed_oneyear=pd.concat([decomposed["2019-11"],decomposed["2019-12"],decomposed["2020-1"],decomposed["2020-2"],decomposed["2020-3"],
+decomposed["2020-4"],decomposed["2020-5"],decomposed["2020-6"],decomposed["2020-7"],decomposed["2020-8"],
+decomposed["2020-9"]])
+closing_overtime_decomposed = go.Scatter(x = decomposed_oneyear.index, y = decomposed_oneyear.trend)
+go.Figure(closing_overtime_decomposed)
+ax=decomposed_oneyear.plot(figsize=(14,8),color="black")
+ax.annotate("sharp drop caused by Covid-19",xy=("2020-03",-4),xytext=("2020-07",-2),size=13,arrowprops=dict(arrowstyle="->",connectionstyle="angle3,angleA=40,angleB=-90"))
+ax.annotate("reasonable logic start point",xy=("2020-05",1),xytext=("2020-06",-1),size=13,arrowprops=dict(arrowstyle="->",connectionstyle="arc3"))
+
+#the effect of Covid19 is so big ,so we must rule out it.Trend after 2020-05 seems more reasonable and stable.
+import requests
+import pandas as pd
+from bs4 import BeautifulSoup as bs
+import webbrowser
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import random as r
+from datetime import datetime
+from scipy import stats
+
+url = "https://ig.ft.com/us-election-2020/"  #Status from Financial Times
+
+response = requests.get(url)
+
+response.status_code
+
+page = response.text
+soup = bs(page)
+Poll_Image=soup.find(class_ = "g-imageset").find('img')['srcset']
+Poll_Image
+
+webbrowser.open(Poll_Image)
+Poll=pd.read_csv('president_polls.csv')
+Poll = Poll[["poll_id","start_date", "end_date","created_at","state", "pollster", "fte_grade", "sample_size", "population", "answer", "pct"]]
+Poll.head()
+Poll["state"] = Poll.state.fillna("U.S.")
+
+def trump_opponent(Poll, opp):
+    trump_vs = Poll[(Poll["answer"] == opp) | (Poll["answer"] == "Trump")]
+    trump_vs = trump_vs.pivot_table(values = "pct", index = ["poll_id", "start_date", "end_date","created_at","state", "pollster", "fte_grade", "sample_size", "population"], columns = "answer")
+    trump_vs = trump_vs.dropna(axis = 0, how = "any") #Drops the Trump polls against any opponent that isn't our opp parameter
+    trump_vs = trump_vs.reset_index().drop(columns = ["poll_id"])
+    trump_vs["start_date"] = pd.to_datetime(trump_vs["start_date"])
+    trump_vs["end_date"] = pd.to_datetime(trump_vs["end_date"]) 
+    trump_vs["created_at"] = pd.to_datetime(trump_vs["created_at"])
+    trump_vs["dem_lead"] = trump_vs[opp] - trump_vs["Trump"] 
+    trump_vs = trump_vs.sort_values(by = ["end_date", "start_date"]) #Arranging the polls from most to least recent
+    return trump_vs
+    
+trump_biden = trump_opponent(Poll, "Biden")
+trump_biden.head(100).sort_values(by="start_date")
+trump_biden["created_at"]= trump_biden["created_at"].apply(lambda x: x.date())
+
+
+trump_biden= trump_biden.rename(columns={'created_at': 'Date'})
+trump_biden_Indexed=trump_biden.set_index('Date')
+decom_reset=decomposed_oneyear.reset_index()
+decom_reset["Date"]= decom_reset["Date"].apply(lambda x: x.date())
+decom_reset=decom_reset.set_index('Date')
+mergedf=pd.merge(trump_biden_Indexed,decom_reset, left_index=True, right_index=True)
+mergedf["dem_lead"]=mergedf["dem_lead"]/10
+groupeddf = mergedf.reset_index()
+groupeddf.groupby(["Date","population"]).dem_lead.mean()
+
+regvoter_df = groupeddf[groupeddf["population"] == "rv"]
+regvoter_df.head()
+
+pollrv = regvoter_df.groupby(["Date"]).dem_lead.mean()
+pollrv_df=pd.DataFrame(pollrv)
+
+model_data=pd.concat([pollrv_df,decomposed_oneyear],axis=1,join="inner")
+model_data.head()
+
+ax=plt.figure(figsize=(14,8))
+ax.add_subplot(111)
+plt.plot(model_data.index,model_data["dem_lead"],color="black", label ="democratic lead")
+plt.plot(model_data.index,model_data["trend"],color="r",label ="trend")
+plt.axhline(y=0, color='purple', linestyle='--')
+
+plt.legend(loc = "upper left")
+def make_scatter_plot(data,
+                      x_name,
+                      y_name,
+                      xlim = None,
+                      ylim = None):
+    
+    fig = plt.figure(figsize = (10, 6))
+    
+    ax = fig.add_subplot(111)
+    ax.scatter(data[x_name], data[y_name], alpha = 0.2)
+    
+    if xlim is not None: ax.set_xlim(xlim)
+    if ylim is not None: ax.set_ylim(ylim)
+    ax.autoscale(False)
+    
+    ax.vlines(0, -10, 10, color = "grey")
+    ax.hlines(0, -10, 10, color = "grey")
+    
+    ax.plot((-10, 10), (-10, 10), color = "red") 
+    
+    ax.set_xlabel(x_name)
+    ax.set_ylabel(y_name)
+    
+make_scatter_plot(model_data, "dem_lead","trend", xlim = (-5, 5), ylim = (-5, 5))
+plt.savefig('lead_trend.png', dpi = 300)
+
+import seaborn as sns
+sns.jointplot(x="dem_lead", y="trend", data=model_data, kind = "reg", color = "red",
+              scatter_kws={"alpha":0.10, "color": "blue"}, line_kws={"color": "red"},
+              height = 8)
+              
+model_data_corrs =model_data.corr()
+model_data_corrs
+model_data=model_data.reset_index()
+model_data_fromay=model_data[80:]
+
+import statsmodels.api as smd
+model_1= smd.OLS(model_data["dem_lead"],model_data["trend"]).fit()
+print(model_1.summary())
+
+
+import sklearn.pipeline as pl
+import sklearn.preprocessing as sp
+import sklearn.linear_model as lm
+import sklearn.metrics as sm
+
+y=model_data["trend"]
+x=model_data["dem_lead"]
+x=np.array(x)
+x=x.reshape(-1,1)
+y=np.array(y)
+y=y.reshape(-1,1)
+poly_reg =sp.PolynomialFeatures(degree=5)
+x_ploy =poly_reg.fit_transform(x)
+lin_reg_2=lm.LinearRegression()
+lin_reg_2.fit(x_ploy,y)
+
+print('model_2 Cofficients:',lin_reg_2.coef_)
+print('model_2 intercept',lin_reg_2.intercept_)
+
+y=model_data["trend"]
+x=model_data["dem_lead"]
+x=np.array(x)
+x=x.reshape(-1,1)
+y=np.array(y)
+y=y.reshape(-1,1)
+model_2 = pl.make_pipeline(sp.PolynomialFeatures(5), lm.LinearRegression())    
+
+model_2.fit(x, y)
+
+pred_y = model_2.predict(x)
+test_x = np.linspace(x.min(), x.max(), 1000).reshape(-1, 1)
+pred_test_y = model_2.predict(test_x)
+plt.figure('Polynomial Regression', facecolor='lightgray',figsize=(14,8))
+plt.ylabel('y', fontsize=14)
+plt.tick_params(labelsize=10)
+plt.grid(linestyle=':')
+plt.scatter(x, y, c='dodgerblue', alpha=0.75, s=60, label='Sample')
+plt.plot(test_x, pred_test_y, c='orangered', label='Regression')
+plt.legend()
+plt.show()
+
+print("mean sbsolute error:", sm.mean_absolute_error(y, pred_y))
+print("mean squared error:", sm.mean_squared_error(y, pred_y))
+print("median absolute error:", sm.median_absolute_error(y, pred_y))
+print("model_2 R-squared:", sm.r2_score(y, pred_y))
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
+import pandas as pd
+
+%matplotlib inline
+
+from datetime import date
+from datetime import datetime
+import dateutil.parser
+
+Global_COVID = pd.read_csv("COVID_JohnHopkins.csv") # Data extracted on 18 Sept 2020.
+Global_COVID.tail(20)
+
+
+Global_COVID.columns.unique()
+Global_COVID = Global_COVID.set_index("date")
+World_US = Global_COVID[["World","United States","United States Virgin Islands"]]
+World_US.tail(10)
+World_US["United States Virgin Islands"] = World_US["United States Virgin Islands"].fillna(0)
+World_US["US"] = World_US["United States Virgin Islands"] + World_US["United States"]
+pct_World_US = World_US.pct_change()
+pct_World_US
+
+pct_World_US.fillna(0)
+pct_World_US
+
+Explain_pct = pct_World_US[["World","US"]].plot(figsize = (15,8))
+Explain_pct.annotate("From May - Daily Increase Percentage Flatten",xy=("2020-05-01",0.10),xytext=("2020-06-02",0.6),size=13,arrowprops=dict(arrowstyle="->",connectionstyle="angle3,angleA=10,angleB=90"))
+#Explain_pct.annotate("reasonable logic start point",xy=("2020-05",1),xytext=("2020-06",-1),size=13,arrowprops=dict(arrowstyle="->",connectionstyle="arc3"))
+
+#From the above, we can rule out COVID as a signficant confounder.
+
+
+
