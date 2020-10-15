@@ -1,0 +1,2 @@
+# Project-Correlation-between-U.S.-Presidential-Polls-and-Equity-Markets-as-of-Sept-2020-
+for this project, we wish to verify if the US Presidential polls have explanatory value for the S&amp;P stock market performance. In particular, we started off with the hypothesis that the incumbent's poll rates will be more likely to correlate with stock markets, i.e. Donald Trump's likelihood to win/lose may be more linked to stock markets.
